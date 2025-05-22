@@ -1,5 +1,8 @@
 module SemiAnalyticInstabilityAnalysis
 
-# Write your package code here.
+using Symbolics
+include("grids.jl")
+export ∑, CV, EV, EC, VC, VE, CE, ∇cv, rtrig
+
 
 end
