@@ -35,9 +35,9 @@ end
 
 function EV(v)
     return [
-        ((v[1], v[2], 1), (1//2, -sqrt3//2)), ((v[1]+1, v[2], 1)  , (-1//2, sqrt3//2)),
-        ((v[1], v[2], 2), (1//2, sqrt3//2)) , ((v[1]-1, v[2]+1, 2), (-1//2, -sqrt3//2)),
-        ((v[1], v[2], 3), (1//1, 0))        , ((v[1], v[2]+1, 3)  , (-1//1, 0))
+        ((v[1], v[2], 1), [1//2; -sqrt3//2]), ((v[1]+1, v[2], 1)  , [-1//2; sqrt3//2]),
+        ((v[1], v[2], 2), [1//2; sqrt3//2]) , ((v[1]-1, v[2]+1, 2), [-1//2; -sqrt3//2]),
+        ((v[1], v[2], 3), Num[1//1; 0])        , ((v[1], v[2]+1, 3)  , Num[-1//1; 0])
     ]
 end
 
@@ -95,15 +95,16 @@ const c = @syms c₁::Int c₂::Int c₃::Int
 const c̃ = @syms c̃₁::Int c̃₂::Int c̃₃::Int
 const v = @syms v₁::Int v₂::Int
 
-const ne = Symbolics.variables(:ne, 1:2, 1:3, 1:2; T=Real)
-const nev = Symbolics.variables(:ne, 1:2, 1:3, 1:3, 1:3; T=Real) #const n⃗ev = Symbolics.variables(:nev, 1:2)
+#const ne = Symbolics.variables(:ne, 1:2, 1:3, 1:2; T=Real)
+#const nev = Symbolics.variables(:ne, 1:2, 1:3, 1:3, 1:3; T=Real) #
+const n⃗ev = Symbolics.variables(:nev, 1:2; T=Real)
 const n⃗ec = Symbolics.variables(:nec, 1:2; T=Real)
 const d  = Symbolics.variable(:d; T=Real)
 const le = Symbolics.variable(:le; T=Real)
 const Ac = Symbolics.variable(:Ac; T=Real)
 const Av = Symbolics.variable(:Av; T=Real)
 
-const bb = le * [-1//2 -1; sqrt3//2 0]
+const bb = le * Num[-1//2 -1; sqrt3//2 0]
 
 function _Ac(_le)
     1//2 * _le * sqrt3//2 * _le
@@ -114,50 +115,79 @@ const _ne = [sqrt3//2; 1//2;; -sqrt3//2; 1//2;; 0; -1;;; -sqrt3//2; -1//2;; sqrt
 
 # gradient operators
 
-function ∇cv(p)
-    ve = ∑(v, VE(e), p[v[1], v[2]] // 2)
-    Symbolics.scalarize([ 1//Ac * ∑((e, nec), EC(c), ve * le * n⃗ec[iTH] ) for iTH = 1:2])
+function ∇cv(_c,p,_v)
+    ve = ∑(_v, VE(e), p // 2)
+    [ 1//Ac * ∑((e, n⃗ec), EC(_c), ve * le * n⃗ec[iTH] ) for iTH = 1:2]
 end
 
-function ∇cc(F)
-    dF = [ ∑((c, d), CE(e, n⃗ec), d * F[jTH, c[1], c[2], c[3]]) for jTH=1:2 ]
+function ∇cc(_cout, F, _cin)
+    dF = [ ∑((c, d), CE(e, n⃗ec), d * F[jTH]) for jTH=1:2 ]
     [∑((e, n⃗ec), EC(c), n⃗ec[iTH] * dF[jTH]) for iTH=1:2, jTH=1:2]
 end
 
 # divergence operators
 
-function ∇ᵀvc(F)
-    fe = ∑(c, CE(e), le//sqrt3 * sum([F[iTH, c[1], c[2], c[3]] * n⃗ev[iTH] for iTH=1:2]))
-    1//Av * ∑((e, n⃗ev), EV(v), fe)
+function ∇ᵀvc(_v, F⃗, _c)
+    fe = ∑(_c, CE(e), le//(2*sqrt3) * F⃗' * n⃗ev)
+    1//Av * ∑((e, n⃗ev), EV(_v), fe)
+end
+
+# average operators
+
+function av_vc(_v, u, _c)
+    ∑(_c, CV(_v), u * Ac // (3 * Av))
+end
+
+function av_cv(_c, p, _v)
+    ∑(_v, VC(_c), p * Av // (6 * Ac))
+end
+
+# horizontal momentum advection
+
+function ∇ᵀcc(_cout, u⃗ad, u⃗tr, _cin)
+    [av_cv(_cout, ∇ᵀvc(v, u⃗ad .* u⃗tr[iTH], _cin), v) for iTH=1:2]
 end
 
 const k = Symbolics.variable(:k; T=Real)
 const l = Symbolics.variable(:l; T=Real)
 const nS = 2
 const ϕ = exp.(im * [k * x + l * y for x = -nS:nS, y = -nS:nS])
-const ϕcv = [exp(im * (k * 1//3 + l * (-2//3))), exp(im * (k * -1//3 + l * -1//3))]
+const ϕcv = [exp(im * (k * 1//3 + l * -2//3)), exp(im * (k * -1//3 + l * -1//3))]
 const ϕvc = [exp(im * (k * -1//3 + l * 2//3)), exp(im * (k * 1//3 + l * 1//3))]
+const ϕcc = [0                                exp(im * (k * 0 + l * -1//sqrt3));
+             exp(im * (k * 0 + l * 1//sqrt3)) 0]
 
 const p̂ = Symbolics.variable(:p̂)
 const F̂ = Symbolics.variables(:F̂, 1:2, 1:2)
+const u⃗̂ = Symbolics.variables(:û, 1:2, 1:2)
 
 const sub_cov = Dict([k => bb[1,1] * k + bb[2,1] * l, l => bb[1,2] * k + bb[2,2] * l])
-const sub_ane = Dict([Ac => _Ac(le); Av => _Av(le); reduce(vcat, nev .=> _nev); reduce(vcat, ne .=> _ne); sqrt3 => √3])
+const sub_ane = Dict([Ac => _Ac(le); Av => _Av(le); sqrt3 => √3])
+
+# function _∇̂cv()
+#     t = stack(ϕcv[iHc] .* ∇cv((nS+1,nS+1,iHc), ϕ[v[1], v[2]] * p̂, v) for iHc=1:2)
+#     #t = [simplify(substitute(ϕcv[iHc] * t[iTH], Dict(c .=> (nS+1,nS+1,iHc)))) for iTH=1:2, iHc=1:2]
+#     simplify.(substitute.(t, Ref(merge(sub_cov, sub_ane))))
+# end
 
 function _∇̂cv()
-    t = ∇cv(ϕ .* p̂)
-    t = [simplify(substitute(ϕcv[iHc] * t[iTH], Dict(c .=> (nS+1,nS+1,iHc)))) for iTH=1:2, iHc=1:2]
-    simplify(substitute.(t, Ref(merge(sub_cov, sub_ane))))
+    p = Symbolics.variables(:p, -nS:nS, -nS:nS; T=Real)
+    p̄ = Symbolics.variables(:p̄, -nS:nS, -nS:nS; T=Real)
+    ϵ = Symbolics.variable(:ϵ; T=Real)
+    g = stack(∇cv((nS+1,nS+1,iHc), p̄[v[1],v[2]] + ϵ * p[v[1],v[2]], v) for iHc=1:2)
+    g = simplify.(taylor_coeff.(g, Ref(ϵ), Ref(1)))
+    g = [simplify(substitute(g[iTH,iHc], Dict(p .=> ϕ .* ϕcv[iHc] .* p̂))) for iTH=1:2, iHc=1:2]
+    g = simplify.(substitute.(g, Ref(merge(sub_cov, sub_ane))))
+    return g
 end
 
 function ∇̂cv(_k,_l,_p̂, _le) # this is slow if used more often better use runtimegeneratedfunction
     g = _∇̂cv() # this is not optimal, maybe generate function instead at precompilation time!
-    substitute.(g, Ref(Dict([k => _k, l => _l, p̂ => _p̂, le => _le, sqrt3 => √3])))
+    simplify.(substitute.(g, Ref(Dict([k => _k, l => _l, p̂ => _p̂, le => _le, sqrt3 => √3]))))
 end
 
 function _∇̂ᵀvc()
-    t = ∇ᵀvc([ϕ[x,y] * ϕvc[jHc] * F̂[jTH, jHc] for jTH=1:2, x=1:size(ϕ,1), y=1:size(ϕ,2), jHc=1:2])
-    t = simplify(substitute(t, Dict(v .=> (nS+1, nS+1))))
+    t = ∇ᵀvc((nS+1,nS+1), [ϕ[c[1],c[2]] * ϕvc[c[3]] * F̂[jTH, c[3]] for jTH=1:2], c)
     simplify(substitute(t, merge(sub_cov, sub_ane)))
 end
 
@@ -166,6 +196,21 @@ function ∇̂ᵀvc(_k,_l,_F̂,_le)
     substitute(d, Dict([k => _k; l => _l; reduce(vcat, F̂ .=> _F̂); le => _le; sqrt3 => √3]))
 end
 
+function _∇̂ᵀcc(u⃗̄)
+    du⃗ = Symbolics.variables(:du, 1:2, -nS:nS, -nS:nS, 1:2)
+    ϵ = Symbolics.variable(:ϵ)
+    u⃗ = [u⃗̄[iTH,c[1],c[2],c[3]] + ϵ * du⃗[iTH,c[1],c[2],c[3]] for iTH=1:2]
+    d = stack(∇ᵀcc((nS+1, nS+1, iHc), u⃗, u⃗, c) for iHc=1:2)
+    d = simplify.(taylor_coeff.(d, Ref(ϵ), Ref(1))) # should simplify taylor coeff. Why?
+    d = [simplify(substitute(d[iTH,iHc], Dict(du⃗ .=> [ϕ[x,y] * ϕcc[iHc,jHc] * u⃗̂[jTH,jHc] for jTH=1:2,x=1:size(ϕ,1),y=1:size(ϕ,2),jHc=1:2]))) for iTH=1:2,iHc=1:2]
+    d = simplify.(substitute.(d, Ref(merge(sub_cov, sub_ane))))
+    return d
+end
+
+function ∇̂ᵀcc(_k, _l, _u⃗̂, u⃗̄,_le)
+    d = _∇̂ᵀcc(u⃗̄)
+    simplify.(substitute.(d, Ref(Dict([k => _k; l => _l; reduce(vcat, u⃗̂ .=> _u⃗̂); le => _le; sqrt3 => √3]))); expand=true)
+end
 
 const rcos = let
     x = Symbolics.variable(:x)
