@@ -115,37 +115,75 @@ const _ne = [sqrt3//2; 1//2;; -sqrt3//2; 1//2;; 0; -1;;; -sqrt3//2; -1//2;; sqrt
 
 # gradient operators
 
-function ∇cv(_c,p,_v)
+function ∇cv(_c, _v, p)
     ve = ∑(_v, VE(e), p // 2)
     [ 1//Ac * ∑((e, n⃗ec), EC(_c), ve * le * n⃗ec[iTH] ) for iTH = 1:2]
 end
 
-function ∇cc(_cout, F, _cin)
+function ∇cc(_cout, _cin, F)
     dF = [ ∑((c, d), CE(e, n⃗ec), d * F[jTH]) for jTH=1:2 ]
     [∑((e, n⃗ec), EC(c), n⃗ec[iTH] * dF[jTH]) for iTH=1:2, jTH=1:2]
 end
 
 # divergence operators
 
-function ∇ᵀvc(_v, F⃗, _c)
-    fe = ∑(_c, CE(e), le//(2*sqrt3) * F⃗' * n⃗ev)
+function ∇ᵀvc(_v, _c, F⃗)
+    fe = ∑(_c, CE(e), le//(2*sqrt3) * n⃗ev' * F⃗)
     1//Av * ∑((e, n⃗ev), EV(_v), fe)
 end
 
 # average operators
 
-function av_vc(_v, u, _c)
+function av_vc(_v, _c, u)
     ∑(_c, CV(_v), u * Ac // (3 * Av))
 end
 
-function av_cv(_c, p, _v)
+function av_cv(_c, _v, p)
     ∑(_v, VC(_c), p * Av // (6 * Ac))
 end
 
 # horizontal momentum advection
 
-function ∇ᵀcc(_cout, u⃗ad, u⃗tr, _cin)
-    [av_cv(_cout, ∇ᵀvc(v, u⃗ad .* u⃗tr[iTH], _cin), v) for iTH=1:2]
+function ∇ᵀcc(_cout, _cin, u⃗ad, u⃗tr)
+    [av_cv(_cout, v, ∇ᵀvc(v, _cin, u⃗ad .* u⃗tr[iTH])) for iTH=1:2]
+end
+
+# horizontal scalar advection
+function VEup(e, n⃗ev)
+    ifelse(e[3] == 1,
+           ifelse(dot(l⃗e[1], n⃗ev) > 0, [((e[1]+1,e[2]), -1), ((e[1],e[2]), 1)], [((e[1]-2,e[2]), -1), ((e[1]-1,e[2]), 1)]),
+           ifelse(e[3] == 2,
+                  ifelse(dot(l⃗e[2], n⃗ev) > 0, [((e[1]-1,e[2]+1), -1), ((e[1],e[2]), 1)], [((e[1]+2,e[2]-2), -1), ((e[1]+1,e[2]-1), 1)]),
+                  ifelse(dot(l⃗e[3], n⃗ev) > 0, [((e[1], e[2]+1), -1), ((e[1], e[2]), 1)], [((e[1],e[2]-2), -1), ((e[1],e[2]-1), 1)])))
+end
+function VEce(e, n⃗ev)
+    ifelse(e[3] == 1,
+           ifelse(dot(l⃗e[1], n⃗ev) > 0, [((e[1],e[2]), -1), ((e[1]-1,e[2]), 1)], [((e[1]-1,e[2]), -1), ((e[1],e[2]), 1)]),
+           ifelse(e[3] == 2,
+                   ifelse(dot(l⃗e[3], n⃗ev) > 0, [((e[1],e[2]), -1), ((e[1]+1,e[2]-1), 1)], [((e[1]+1,e[2]-1), -1), ((e[1],e[2]), 1)]),
+                  ifelse(dot(l⃗e[2], n⃗ev) > 0, [((e[1],e[2]), -1), ((e[1],e[2]-1), 1)], [((e[1],e[2]-1), -1), ((e[1],e[2]), 1)])))
+end
+function VEdo(e, n⃗ev)
+    ifelse(e[3] == 1,
+           ifelse(dot(l⃗e[1], n⃗ev) > 0, [((e[1]-1,e[2]), -1), ((e[1]-2,e[2]), 1)], [((e[1],e[2]), -1), ((e[1]+1,e[2]), 1)]),
+           ifelse(e[3] == 2,
+                  ifelse(dot(l⃗e[2], n⃗ev) > 0, [((e[1]+1,e[2]-1), -1), ((e[1]+2,e[2]-2), 1)], [((e[1],e[2]), -1), ((e[1]-1,e[2]+1), 1)]),
+                  ifelse(dot(l⃗e[3], n⃗ev) > 0, [((e[1],e[2]-1), -1), ((e[1],e[2]-2), 1)], [((e[1],e[2]), -1), ((e[1],e[2]+1), 1)])))
+end
+
+function ∇ᵀ(_vout, _c, _vin, u⃗, b; γ=3//4)
+    d̃ = Symbolics.variable(:d̃; T=Real)
+    qe = ∑(_c, CE(e), le//(2*sqrt3) * n⃗ev' * u⃗)
+    ∇beᵘ = ∑((_vin, d̃), VEup(e,n⃗ev), d̃ * b)
+    ∇beᶜ = ∑((_vin, d̃), VEce(e,n⃗ev), d̃ * b)
+    ∇beᵈ = ∑((_vin, d̃), VEdo(e,n⃗ev), d̃ * b)
+    ∇be⁺ = 2//3 * ∇beᶜ + 1//3 * ∇beᵘ
+    ∇be⁻ = 2//3 * ∇beᶜ + 1//3 * ∇beᵈ
+    be⁺ = b + le//2 * ∇be⁺ 
+    be⁻ = b - le//2 * ∇be⁻
+    be = ifelse(d == 1, be⁺, be⁻)
+    fe = ∑((_vin, d), VEce(e,n⃗ev), (qe + d * (1-γ) * abs(qe)) * be)
+    ∑((e, n⃗ev), EV(_vout), fe)
 end
 
 const k = Symbolics.variable(:k; T=Real)
@@ -154,15 +192,15 @@ const nS = 2
 const ϕ = exp.(im * [k * x + l * y for x = -nS:nS, y = -nS:nS])
 const ϕcv = [exp(im * (k * 1//3 + l * -2//3)), exp(im * (k * -1//3 + l * -1//3))]
 const ϕvc = [exp(im * (k * -1//3 + l * 2//3)), exp(im * (k * 1//3 + l * 1//3))]
-const ϕcc = [0                                exp(im * (k * 0 + l * -1//sqrt3));
-             exp(im * (k * 0 + l * 1//sqrt3)) 0]
+const ϕcc = [1                                exp(im * (k * 0 + l * -1//sqrt3));
+             exp(im * (k * 0 + l * 1//sqrt3)) 1]
 
 const p̂ = Symbolics.variable(:p̂)
 const F̂ = Symbolics.variables(:F̂, 1:2, 1:2)
 const u⃗̂ = Symbolics.variables(:û, 1:2, 1:2)
 
 const sub_cov = Dict([k => bb[1,1] * k + bb[2,1] * l, l => bb[1,2] * k + bb[2,2] * l])
-const sub_ane = Dict([Ac => _Ac(le); Av => _Av(le); sqrt3 => √3])
+const sub_ane = Dict([Ac => _Ac(le); Av => _Av(le)])
 
 # function _∇̂cv()
 #     t = stack(ϕcv[iHc] .* ∇cv((nS+1,nS+1,iHc), ϕ[v[1], v[2]] * p̂, v) for iHc=1:2)
@@ -171,10 +209,10 @@ const sub_ane = Dict([Ac => _Ac(le); Av => _Av(le); sqrt3 => √3])
 # end
 
 function _∇̂cv()
-    p = Symbolics.variables(:p, -nS:nS, -nS:nS; T=Real)
+    p = Symbolics.variables(:p, -nS:nS, -nS:nS; T=Complex)
     p̄ = Symbolics.variables(:p̄, -nS:nS, -nS:nS; T=Real)
     ϵ = Symbolics.variable(:ϵ; T=Real)
-    g = stack(∇cv((nS+1,nS+1,iHc), p̄[v[1],v[2]] + ϵ * p[v[1],v[2]], v) for iHc=1:2)
+    g = stack(∇cv((nS+1,nS+1,iHc), v, p̄[v[1],v[2]] + ϵ * p[v[1],v[2]]) for iHc=1:2)
     g = simplify.(taylor_coeff.(g, Ref(ϵ), Ref(1)))
     g = [simplify(substitute(g[iTH,iHc], Dict(p .=> ϕ .* ϕcv[iHc] .* p̂))) for iTH=1:2, iHc=1:2]
     g = simplify.(substitute.(g, Ref(merge(sub_cov, sub_ane))))
@@ -187,7 +225,7 @@ function ∇̂cv(_k,_l,_p̂, _le) # this is slow if used more often better use r
 end
 
 function _∇̂ᵀvc()
-    t = ∇ᵀvc((nS+1,nS+1), [ϕ[c[1],c[2]] * ϕvc[c[3]] * F̂[jTH, c[3]] for jTH=1:2], c)
+    t = ∇ᵀvc((nS+1,nS+1), c, [ϕ[c[1],c[2]] * ϕvc[c[3]] * F̂[jTH, c[3]] for jTH=1:2])
     simplify(substitute(t, merge(sub_cov, sub_ane)))
 end
 
@@ -197,10 +235,10 @@ function ∇̂ᵀvc(_k,_l,_F̂,_le)
 end
 
 function _∇̂ᵀcc(u⃗̄)
-    du⃗ = Symbolics.variables(:du, 1:2, -nS:nS, -nS:nS, 1:2)
-    ϵ = Symbolics.variable(:ϵ)
+    du⃗ = Symbolics.variables(:du, 1:2, -nS:nS, -nS:nS, 1:2; T=Complex)
+    ϵ = Symbolics.variable(:ϵ; T=Real)
     u⃗ = [u⃗̄[iTH,c[1],c[2],c[3]] + ϵ * du⃗[iTH,c[1],c[2],c[3]] for iTH=1:2]
-    d = stack(∇ᵀcc((nS+1, nS+1, iHc), u⃗, u⃗, c) for iHc=1:2)
+    d = stack(∇ᵀcc((nS+1, nS+1, iHc), c, u⃗, u⃗) for iHc=1:2)
     d = simplify.(taylor_coeff.(d, Ref(ϵ), Ref(1))) # should simplify taylor coeff. Why?
     d = [simplify(substitute(d[iTH,iHc], Dict(du⃗ .=> [ϕ[x,y] * ϕcc[iHc,jHc] * u⃗̂[jTH,jHc] for jTH=1:2,x=1:size(ϕ,1),y=1:size(ϕ,2),jHc=1:2]))) for iTH=1:2,iHc=1:2]
     d = simplify.(substitute.(d, Ref(merge(sub_cov, sub_ane))))
@@ -210,6 +248,27 @@ end
 function ∇̂ᵀcc(_k, _l, _u⃗̂, u⃗̄,_le)
     d = _∇̂ᵀcc(u⃗̄)
     simplify.(substitute.(d, Ref(Dict([k => _k; l => _l; reduce(vcat, u⃗̂ .=> _u⃗̂); le => _le; sqrt3 => √3]))); expand=true)
+end
+
+function _∇̂ᵀ(u⃗̄, b̄)
+    ṽ = @syms ṽ₁::Int ṽ₂::Int
+    du⃗ = Symbolics.variables(:du, 1:2, -nS:nS, -nS:nS, 1:2; T=Complex)
+    ϵ = Symbolics.variable(:ϵ; T=Real)
+    u⃗ = [u⃗̄[iTH,c[1],c[2],c[3]] + ϵ * du⃗[iTH,c[1],c[2],c[3]] for iTH=1:2]
+    db = Symbolics.variables(:db, -nS:nS, -nS:nS; T=Complex)
+    b = b̄[ṽ[1], ṽ[2]] + ϵ * db[ṽ[1],ṽ[2]]
+    d = ∇ᵀ((nS+2, nS+2, iHc), c, ṽ, u⃗, b)
+    d = simplify(taylor_coeff(d, ϵ, 1)) # should simplify taylor coeff. Why?
+    dusub = Dict(du⃗ .=> [ϕ[x,y] * ϕvc[jHc] * u⃗̂[jTH,jHc] for jTH=1:2,x=1:size(ϕ,1),y=1:size(ϕ,2),jHc=1:2])
+    dbsub = Dict(db .=> ϕ[x,y] * b̂)
+    d = [simplify(substitute(d[iTH,iHc], merge(dusub, dbsub))) for iTH=1:2,iHc=1:2]
+    d = simplify.(substitute.(d, Ref(merge(sub_cov, sub_ane))))
+    return d
+end
+
+function ∇̂ᵀ(_k, _l, _u⃗̂, u⃗̄, _b̂, b̄,_le)
+    d = _∇̂ᵀ(u⃗̄, b̄)
+    simplify(substitute(d, Ref(Dict([k => _k; l => _l; reduce(vcat, u⃗̂ .=> _u⃗̂); b̂ => _b̂; le => _le; sqrt3 => √3]))); expand=true)
 end
 
 const rcos = let
