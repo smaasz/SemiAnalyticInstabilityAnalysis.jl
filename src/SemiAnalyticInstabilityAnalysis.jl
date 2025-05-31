@@ -2,7 +2,6 @@ module SemiAnalyticInstabilityAnalysis
 
 using Symbolics
 import Base: getindex
-import LinearAlgebra: dot
 # using RuntimeGeneratedFunctions
 # RuntimeGeneratedFunctions.init(@__MODULE__)
 include("grids.jl")

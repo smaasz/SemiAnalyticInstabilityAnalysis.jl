@@ -10,6 +10,10 @@ function cross(a, b)
     a[1] * b[2] - a[2] * b[1]
 end
 
+function dot(a,b)
+    a[1] * b[1] + a[2] * b[2]
+end
+
 const sqrt3 = Symbolics.variable(:sqrt3, T=Real)
 
 function ∑(e, E::Vector{<:Tuple}, exp)
@@ -86,7 +90,7 @@ function CE(e)
     return ifelse(e[3] == 1, [(e[1]-1, e[2]+1, 1), (e[1], e[2], 2)], ifelse(e[3] == 2, [(e[1], e[2], 1), (e[1]+1, e[2], 2)], [(e[1], e[2], 1), (e[1], e[2], 2)]))
 end
 
-const l⃗e = [[0.5, -√3/2], [0.5, √3/2], [1., 0.]]
+const l⃗e = [[0.5, -sqrt3/2], [0.5, sqrt3/2], Num[1., 0.]]
 
 const Pi = Symbolics.variable(:Pi; T=Int)
 
@@ -115,11 +119,14 @@ const _ne = [sqrt3//2; 1//2;; -sqrt3//2; 1//2;; 0; -1;;; -sqrt3//2; -1//2;; sqrt
 
 # gradient operators
 
+
 function ∇cv(_c, _v, p)
     ve = ∑(_v, VE(e), p // 2)
     [ 1//Ac * ∑((e, n⃗ec), EC(_c), ve * le * n⃗ec[iTH] ) for iTH = 1:2]
 end
 
+# implement ∇ec(e,c,F,n⃗ec) = [ ∑((c, d), CE(e, n⃗ec), d * F[jTH]) for jTH=1:2 ]?
+# or d⃗ᵀ∇(e,c,F) = [ ∑((c,d), CE(e), d * F[jTH]) for jTH=1:2 ] and CE(e) are ordered according to d⃗ₑ = l⃗ₑ × k⃗, note n⃗ec n⃗ecᵀ∇ = d⃗ₑ d⃗ₑᵀ∇ is actually independent of c
 function ∇cc(_cout, _cin, F)
     dF = [ ∑((c, d), CE(e, n⃗ec), d * F[jTH]) for jTH=1:2 ]
     [∑((e, n⃗ec), EC(c), n⃗ec[iTH] * dF[jTH]) for iTH=1:2, jTH=1:2]
@@ -130,6 +137,13 @@ end
 function ∇ᵀvc(_v, _c, F⃗)
     fe = ∑(_c, CE(e), le//(2*sqrt3) * n⃗ev' * F⃗)
     1//Av * ∑((e, n⃗ev), EV(_v), fe)
+end
+
+# curl operators
+
+function curl_vc(_v, _c, u⃗)
+    s = ∑(_c, CE(e), 1//2 * (-n⃗ev[2] * u⃗[1] + n⃗ev[1] * u⃗[2]))
+    1//Av * ∑((e, n⃗ev), EV(_v), le * s)
 end
 
 # average operators
@@ -146,6 +160,21 @@ end
 
 function ∇ᵀcc(_cout, _cin, u⃗ad, u⃗tr)
     [av_cv(_cout, v, ∇ᵀvc(v, _cin, u⃗ad .* u⃗tr[iTH])) for iTH=1:2]
+end
+
+function u⃗ᵀ∇(_cout, _cin, u⃗tr, u⃗ad)
+    ĉ = @syms ĉ₁::Int ĉ₂::Int ĉ₃::Int
+    F = ∑(_cin, CE(e), le//2 * d * n⃗ec' * u⃗ad)
+    Ru = [u⃗tr[iTH] + le//2 * d * n⃗ec' * ∇(c, _cin, u⃗tr[iTH]) for iTH=1:2]
+    Fu = ∑((_cin,d), CE(e), d * 0.5*(F + abs(F)) * ( Ru[iTH] - substitute(u⃗tr[iTH], Dict( _cin .=> _cout)) )) 
+    [1//Ac * ∑((e, n⃗ec), EC(_cout), Fu) for iTH=1:2]
+end
+
+function u⃗ᵀ∇_vector_invariant(_cout, _cin, u⃗tr, u⃗ad)
+    u⃗⊥ = [-u⃗tr[2]; u⃗tr[1]]
+    ∇KE = ∇cv(_cout, v, sum([av_vc(u⃗⊥[iTH])^2 for jTH=1:2]))
+    ω = av_cv(_cout, v, curl_vc(v, _cin, u⃗tr))
+    [ω * u⃗⊥[iTH] + ∇KE[iTH] for iTH=1:2]
 end
 
 # horizontal scalar advection
@@ -174,21 +203,21 @@ end
 function ∇ᵀ(_vout, _c, _vin, u⃗, b; γ=3//4)
     d̃ = Symbolics.variable(:d̃; T=Real)
     qe = ∑(_c, CE(e), le//(2*sqrt3) * n⃗ev' * u⃗)
-    ∇beᵘ = ∑((_vin, d̃), VEup(e,n⃗ev), d̃ * b)
-    ∇beᶜ = ∑((_vin, d̃), VEce(e,n⃗ev), d̃ * b)
-    ∇beᵈ = ∑((_vin, d̃), VEdo(e,n⃗ev), d̃ * b)
+    ∇beᵘ = ∑((_vin, d̃), VEup(e,n⃗ev), d̃ * b//le)
+    ∇beᶜ = ∑((_vin, d̃), VEce(e,n⃗ev), d̃ * b//le)
+    ∇beᵈ = ∑((_vin, d̃), VEdo(e,n⃗ev), d̃ * b//le)
     ∇be⁺ = 2//3 * ∇beᶜ + 1//3 * ∇beᵘ
     ∇be⁻ = 2//3 * ∇beᶜ + 1//3 * ∇beᵈ
     be⁺ = b + le//2 * ∇be⁺ 
     be⁻ = b - le//2 * ∇be⁻
     be = ifelse(d == 1, be⁺, be⁻)
     fe = ∑((_vin, d), VEce(e,n⃗ev), (qe + d * (1-γ) * abs(qe)) * be)
-    ∑((e, n⃗ev), EV(_vout), fe)
+    1//Av * ∑((e, n⃗ev), EV(_vout), fe)
 end
 
 const k = Symbolics.variable(:k; T=Real)
 const l = Symbolics.variable(:l; T=Real)
-const nS = 2
+const nS = 3
 const ϕ = exp.(im * [k * x + l * y for x = -nS:nS, y = -nS:nS])
 const ϕcv = [exp(im * (k * 1//3 + l * -2//3)), exp(im * (k * -1//3 + l * -1//3))]
 const ϕvc = [exp(im * (k * -1//3 + l * 2//3)), exp(im * (k * 1//3 + l * 1//3))]
@@ -196,6 +225,7 @@ const ϕcc = [1                                exp(im * (k * 0 + l * -1//sqrt3))
              exp(im * (k * 0 + l * 1//sqrt3)) 1]
 
 const p̂ = Symbolics.variable(:p̂)
+const b̂ = Symbolics.variable(:b̂)
 const F̂ = Symbolics.variables(:F̂, 1:2, 1:2)
 const u⃗̂ = Symbolics.variables(:û, 1:2, 1:2)
 
@@ -252,23 +282,39 @@ end
 
 function _∇̂ᵀ(u⃗̄, b̄)
     ṽ = @syms ṽ₁::Int ṽ₂::Int
-    du⃗ = Symbolics.variables(:du, 1:2, -nS:nS, -nS:nS, 1:2; T=Complex)
-    ϵ = Symbolics.variable(:ϵ; T=Real)
+    du⃗ = Symbolics.variables(:du, 1:2, -nS:nS, -nS:nS, 1:2)
+    ϵ = Symbolics.variable(:ϵ)
     u⃗ = [u⃗̄[iTH,c[1],c[2],c[3]] + ϵ * du⃗[iTH,c[1],c[2],c[3]] for iTH=1:2]
     db = Symbolics.variables(:db, -nS:nS, -nS:nS; T=Complex)
     b = b̄[ṽ[1], ṽ[2]] + ϵ * db[ṽ[1],ṽ[2]]
-    d = ∇ᵀ((nS+2, nS+2, iHc), c, ṽ, u⃗, b)
+    d = ∇ᵀ((nS+1, nS+1), c, ṽ, u⃗, b)
+    d = simplify(d)
     d = simplify(taylor_coeff(d, ϵ, 1)) # should simplify taylor coeff. Why?
     dusub = Dict(du⃗ .=> [ϕ[x,y] * ϕvc[jHc] * u⃗̂[jTH,jHc] for jTH=1:2,x=1:size(ϕ,1),y=1:size(ϕ,2),jHc=1:2])
-    dbsub = Dict(db .=> ϕ[x,y] * b̂)
-    d = [simplify(substitute(d[iTH,iHc], merge(dusub, dbsub))) for iTH=1:2,iHc=1:2]
-    d = simplify.(substitute.(d, Ref(merge(sub_cov, sub_ane))))
+    dbsub = Dict(db .=> ϕ .* b̂)
+    d = simplify(substitute(d, merge(dusub, dbsub)))
+    d = simplify(substitute(d, merge(sub_cov, sub_ane)))
     return d
 end
 
 function ∇̂ᵀ(_k, _l, _u⃗̂, u⃗̄, _b̂, b̄,_le)
     d = _∇̂ᵀ(u⃗̄, b̄)
-    simplify(substitute(d, Ref(Dict([k => _k; l => _l; reduce(vcat, u⃗̂ .=> _u⃗̂); b̂ => _b̂; le => _le; sqrt3 => √3]))); expand=true)
+    d = substitute(d, Dict([sqrt3 => √3, le=>_le]))
+    simplify(substitute(d, Dict([k => _k; l => _l; reduce(vcat, u⃗̂ .=> _u⃗̂); b̂ => _b̂; le => _le; sqrt3 => √3])); expand=true)
+end
+
+function system()
+    @variables t z
+    @variables (u(t,z))[1:2,1:7,1:7,1:2] (b(t,z))[1:7,1:7] (η(t))[1:7, 1:7]
+    v = @syms v₁::Int v₂::Int
+    c = @syms c₁::Int c₂::Int c₃::Int
+    c̃ = @syms c̃₁::Int c̃₂::Int c̃₃::Int
+    ∂ₜ = Differential(t)
+    ∂₃ = Differential(z)
+
+    u⃗ = [u[iTH, c[1], c[2], c[3]] for iTH=1:2]
+    
+    #substitute(∂ₜ.(u⃗), Dict(c .=> c̃)) + ∇ᵀ(c̃, c, u⃗, u⃗) + f₀ * [0 -1; 1 0] * substitute(u⃗, Dict(c .=> c̃) + 
 end
 
 const rcos = let
@@ -286,3 +332,38 @@ rtrig = SymbolicUtils.Postwalk(SymbolicUtils.PassThrough(SymbolicUtils.Restarted
 
 
 subs = Dict([Ac => 1//2 * le * sqrt3//2 * le])
+
+
+#------------------------------Tri-C----------------------------------
+
+function ∇ᵀce(_c, _e, u)
+    1//Ac * ∑((_e, n⃗ec), EC(_c), le * n⃗ec' * n⃗e * u)
+end
+
+function curl_ve(_v, _e, u)
+    1//Av * ∑((_e, n⃗ev), EV(_v), le * n⃗ev' * t⃗e * u)
+end
+
+function ∇ec(_e, _c, p)
+    1//lê * ∑((_c, n⃗ec), CE(_e), n⃗ec' * n⃗e * p) 
+end
+
+function ∇⊥ev(_e, _v, ω)
+    1//le * ∑((_v, n⃗ev), VE(_e), n⃗ev' * t⃗e * ω)
+end
+
+function Pce(_c, _e, u)
+    1//Av * ∑(_e, E(_c), le * lê//2 * n⃗e * u)
+end
+
+function Pᵀec(_e, _c, F⃗)
+    1//2 * ∑(_c, CE(_e), n⃗e' * F⃗)
+end
+
+function P̃ve(_v, _e, u)
+    1//Ac * ∑(_e, EV(_v), le//2 * lê * n⃗ * u)
+end
+
+function P̃⁺(_e, _v, G⃗)
+    1//2 * ∑(_v, VE(_e), t⃗e' * G⃗)
+end
